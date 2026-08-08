@@ -99,14 +99,41 @@ document.addEventListener('DOMContentLoaded', () => {
         exportCsvBtn.addEventListener('click', exportToCSV);
     }
 
+    // Bookmarks State Management
+    let bookmarkedIds = new Set(JSON.parse(localStorage.getItem('bq_bookmarks') || '[]'));
+
+    function saveBookmarks() {
+        localStorage.setItem('bq_bookmarks', JSON.stringify(Array.from(bookmarkedIds)));
+    }
+
+    window.toggleBookmark = function(itemId) {
+        if (bookmarkedIds.has(itemId)) {
+            bookmarkedIds.delete(itemId);
+            showToast('🗑️ Removed from Bookmarks');
+        } else {
+            bookmarkedIds.add(itemId);
+            showToast('🔖 Saved to Bookmarks!');
+        }
+        saveBookmarks();
+        
+        // Re-render categories pill badge & card stream
+        const categories = Array.from(new Set(allReleaseItems.map(i => i.category))).sort();
+        renderCategoryPills(categories);
+        renderReleaseCards();
+    };
+
     // ==========================================
-    // CSV Export Handler
+    // CSV Export & Filter Handlers
     // ==========================================
     function getFilteredItems() {
         let filtered = allReleaseItems;
-        if (currentCategory !== 'All') {
+
+        if (currentCategory === 'Bookmarks') {
+            filtered = filtered.filter(item => bookmarkedIds.has(item.id));
+        } else if (currentCategory !== 'All') {
             filtered = filtered.filter(item => item.category.toLowerCase() === currentCategory.toLowerCase());
         }
+
         if (currentSearch) {
             filtered = filtered.filter(item => 
                 item.title.toLowerCase().includes(currentSearch) ||
@@ -156,15 +183,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Category Pills & Search Rendering
     // ==========================================
     function renderCategoryPills(categories) {
-        categoryPillsContainer.innerHTML = '<button class="pill active" data-category="All">All Updates</button>';
+        const bookmarkCount = bookmarkedIds.size;
+        let html = `<button class="pill ${currentCategory === 'All' ? 'active' : ''}" data-category="All">All Updates</button>`;
+        
+        html += `<button class="pill bookmark-pill ${currentCategory === 'Bookmarks' ? 'active' : ''}" data-category="Bookmarks">🔖 Bookmarks (${bookmarkCount})</button>`;
         
         categories.forEach(cat => {
-            const btn = document.createElement('button');
-            btn.className = `pill ${currentCategory === cat ? 'active' : ''}`;
-            btn.dataset.category = cat;
-            btn.textContent = cat;
-            categoryPillsContainer.appendChild(btn);
+            html += `<button class="pill ${currentCategory === cat ? 'active' : ''}" data-category="${cat}">${cat}</button>`;
         });
+
+        categoryPillsContainer.innerHTML = html;
 
         categoryPillsContainer.querySelectorAll('.pill').forEach(pill => {
             pill.addEventListener('click', (e) => {
@@ -198,17 +226,31 @@ document.addEventListener('DOMContentLoaded', () => {
         updateCountEl.textContent = `${filtered.length} Updates`;
 
         if (filtered.length === 0) {
-            releaseNotesList.innerHTML = `
-                <div class="note-card" style="text-align: center; padding: 40px;">
-                    <h3>No matching BigQuery updates found</h3>
-                    <p style="color: var(--text-muted); margin-top: 8px;">Try clearing search filters or refreshing feed.</p>
-                </div>
-            `;
+            if (currentCategory === 'Bookmarks') {
+                releaseNotesList.innerHTML = `
+                    <div class="note-card" style="text-align: center; padding: 45px 20px;">
+                        <div style="font-size: 2.8rem; margin-bottom: 12px;">🔖</div>
+                        <h3 style="font-size: 1.25rem; font-weight: 600;">No Bookmarked Updates Yet</h3>
+                        <p style="color: var(--text-muted); margin-top: 8px; max-width: 420px; margin-left: auto; margin-right: auto;">Click the <b>"Bookmark"</b> button on any release note card to pin it here for quick access!</p>
+                    </div>
+                `;
+            } else {
+                releaseNotesList.innerHTML = `
+                    <div class="note-card" style="text-align: center; padding: 40px;">
+                        <h3>No matching BigQuery updates found</h3>
+                        <p style="color: var(--text-muted); margin-top: 8px;">Try clearing search filters or refreshing feed.</p>
+                    </div>
+                `;
+            }
             return;
         }
 
         releaseNotesList.innerHTML = filtered.map(item => {
             const badgeClass = getBadgeClass(item.category);
+            const isBookmarked = bookmarkedIds.has(item.id);
+            const bookmarkClass = isBookmarked ? 'action-btn bookmark-btn bookmarked' : 'action-btn bookmark-btn';
+            const bookmarkLabel = isBookmarked ? '★ Bookmarked' : '☆ Bookmark';
+
             return `
                 <article class="note-card" id="card-${item.id}">
                     <div class="card-header">
@@ -228,6 +270,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                             </svg>
                             Tweet Update
+                        </button>
+
+                        <button class="${bookmarkClass}" onclick="toggleBookmark('${item.id}')" title="${isBookmarked ? 'Remove Bookmark' : 'Save to Bookmarks'}">
+                            ${bookmarkLabel}
                         </button>
 
                         <button class="action-btn" onclick="copyCardText('${item.id}')" title="Copy full release note text to clipboard">
