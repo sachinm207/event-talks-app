@@ -15,6 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const lastSyncTimeEl = document.getElementById('last-sync-time');
     const statusTextEl = document.getElementById('status-text');
 
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+
     // Tweet Modal Elements
     const tweetModal = document.getElementById('tweet-modal');
     const modalCloseBtn = document.getElementById('modal-close-btn');
@@ -88,10 +90,67 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Refresh Button Event Listener
+    // Refresh & Export Event Listeners
     refreshBtn.addEventListener('click', () => {
         loadReleaseNotes(true);
     });
+
+    if (exportCsvBtn) {
+        exportCsvBtn.addEventListener('click', exportToCSV);
+    }
+
+    // ==========================================
+    // CSV Export Handler
+    // ==========================================
+    function getFilteredItems() {
+        let filtered = allReleaseItems;
+        if (currentCategory !== 'All') {
+            filtered = filtered.filter(item => item.category.toLowerCase() === currentCategory.toLowerCase());
+        }
+        if (currentSearch) {
+            filtered = filtered.filter(item => 
+                item.title.toLowerCase().includes(currentSearch) ||
+                item.plain_text.toLowerCase().includes(currentSearch) ||
+                item.date.toLowerCase().includes(currentSearch) ||
+                item.category.toLowerCase().includes(currentSearch)
+            );
+        }
+        return filtered;
+    }
+
+    function exportToCSV() {
+        const items = getFilteredItems();
+        if (!items || items.length === 0) {
+            showToast('⚠️ No release notes available to export');
+            return;
+        }
+
+        const headers = ['Date', 'Category', 'Title', 'Summary Text', 'Doc Link'];
+        const csvRows = [headers.join(',')];
+
+        items.forEach(item => {
+            const row = [
+                `"${(item.date || '').replace(/"/g, '""')}"`,
+                `"${(item.category || '').replace(/"/g, '""')}"`,
+                `"${(item.title || '').replace(/"/g, '""')}"`,
+                `"${(item.plain_text || '').replace(/"/g, '""')}"`,
+                `"${(item.link || '').replace(/"/g, '""')}"`
+            ];
+            csvRows.push(row.join(','));
+        });
+
+        const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `bigquery_release_notes_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        showToast(`📥 Exported ${items.length} release notes to CSV!`);
+    }
 
     // ==========================================
     // 3. Category Pills & Search Rendering
@@ -107,7 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
             categoryPillsContainer.appendChild(btn);
         });
 
-        // Add Event delegation for pills
         categoryPillsContainer.querySelectorAll('.pill').forEach(pill => {
             pill.addEventListener('click', (e) => {
                 categoryPillsContainer.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
@@ -136,21 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 4. Render Release Cards
     // ==========================================
     function renderReleaseCards() {
-        let filtered = allReleaseItems;
-
-        if (currentCategory !== 'All') {
-            filtered = filtered.filter(item => item.category.toLowerCase() === currentCategory.toLowerCase());
-        }
-
-        if (currentSearch) {
-            filtered = filtered.filter(item => 
-                item.title.toLowerCase().includes(currentSearch) ||
-                item.plain_text.toLowerCase().includes(currentSearch) ||
-                item.date.toLowerCase().includes(currentSearch) ||
-                item.category.toLowerCase().includes(currentSearch)
-            );
-        }
-
+        const filtered = getFilteredItems();
         updateCountEl.textContent = `${filtered.length} Updates`;
 
         if (filtered.length === 0) {
@@ -179,22 +223,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
 
                     <div class="card-actions">
-                        <button class="action-btn tweet-action-btn" onclick="openTweetModal('${item.id}')">
+                        <button class="action-btn tweet-action-btn" onclick="openTweetModal('${item.id}')" title="Draft and post to Twitter / X">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                             </svg>
                             Tweet Update
                         </button>
 
-                        <button class="action-btn" onclick="copyCardText('${item.id}')">
+                        <button class="action-btn" onclick="copyCardText('${item.id}')" title="Copy full release note text to clipboard">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                 <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
                             </svg>
-                            Copy Summary
+                            Copy to Clipboard
                         </button>
 
-                        <a href="${item.link}" target="_blank" rel="noopener" class="action-btn" style="margin-left: auto;">
+                        <a href="${item.link}" target="_blank" rel="noopener" class="action-btn" style="margin-left: auto;" title="Open official documentation link">
                             View Doc ↗
                         </a>
                     </div>
@@ -222,14 +266,17 @@ document.addEventListener('DOMContentLoaded', () => {
         tweetModal.classList.add('active');
     };
 
-    // Global helper for copying summary text
+    // Global helper for copying card text to clipboard
     window.copyCardText = function(itemId) {
         const item = allReleaseItems.find(i => i.id === itemId);
         if (!item) return;
 
-        const copyContent = `[BigQuery ${item.category}] ${item.date}\n${item.plain_text}\nLink: ${item.link}`;
+        const copyContent = `🚀 [BigQuery ${item.category}] - ${item.date}\n\nTitle: ${item.title}\n\nDetails: ${item.plain_text}\n\nLink: ${item.link}`;
         navigator.clipboard.writeText(copyContent).then(() => {
-            showToast('📋 Summary copied to clipboard!');
+            showToast('📋 Copied update to clipboard!');
+        }).catch(err => {
+            console.error('Clipboard copy failed:', err);
+            showToast('❌ Copy failed. Check browser permissions.');
         });
     };
 
